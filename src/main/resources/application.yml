@@ -1,0 +1,16 @@
+server:
+  port: 8083
+spring:
+  application:
+    name: signaling-service
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+app:
+  cors:
+    allowed-origins: ${FRONTEND_ORIGINS:http://localhost:3000,http://localhost:3001}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
