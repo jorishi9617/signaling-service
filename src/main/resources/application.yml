@@ -1,5 +1,5 @@
 server:
-  port: 8083
+  port: ${PORT:${SERVER_PORT:8083}}
 spring:
   application:
     name: signaling-service
@@ -8,7 +8,7 @@ security:
     secret: ${JWT_SECRET}
 app:
   cors:
-    allowed-origins: ${FRONTEND_ORIGINS:http://localhost:3000,http://localhost:3001}
+    allowed-origins: ${FRONTEND_ORIGINS}
 management:
   endpoints:
     web:
