@@ -1,0 +1,9 @@
+{$DOMAIN} {
+	@websocket path /ws /ws/*
+	reverse_proxy @websocket signaling-service:8083
+
+	@tokens path /api/tokens /api/tokens/*
+	reverse_proxy @tokens token-service:8080
+
+	reverse_proxy frontend:3000
+}
