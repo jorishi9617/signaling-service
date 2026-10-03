@@ -19,9 +19,4 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - uses: actions/checkout@v4
-        with:
-          repository: jorishi9617/common-library
-          path: common-library
-      - run: mvn --batch-mode -f common-library/pom.xml install -DskipTests
       - run: mvn --batch-mode verify

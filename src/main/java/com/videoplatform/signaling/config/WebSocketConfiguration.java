@@ -1,6 +1,6 @@
 package com.videoplatform.signaling.config;
 
-import com.videoplatform.common.security.JwtService;
+import com.videoplatform.signaling.security.JwtService;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
