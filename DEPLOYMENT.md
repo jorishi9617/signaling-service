@@ -20,9 +20,23 @@ the Cloud Run request timeout and clients need to reconnect after an hour.
    alert in **Billing** before running the deployment script.
 2. Install the Google Cloud CLI on your computer, then run `gcloud auth login`
    and `gcloud config set project YOUR_PROJECT_ID`.
-3. Create a free Neon PostgreSQL project in a US region. In **Connect**, copy
-   the host, database name, username, and password. Keep the password private.
-   Neon requires SSL; the deployment script configures it in the JDBC URL.
+3. The Neon project is already linked in this checkout as
+   `noisy-smoke-33215628`, branch `production`, database `neondb`. If you are
+   setting up from a fresh checkout, install and authenticate the Neon CLI:
+
+   ```sh
+   npm install -g neon
+   neon auth
+   neon link --project-id noisy-smoke-33215628 \
+     --branch production --no-env-pull -y
+   ```
+
+   The deploy script gets the direct production connection URL from the Neon
+   CLI, converts it to JDBC, and stores it in Google Secret Manager. It does
+   not print or commit the database password. The direct connection is needed
+   because Flyway applies the app's checked-in migrations during startup. The
+   selected database currently has no `auth` or `calls` schema; the auth and
+   call services create these from their versioned Flyway migrations at startup.
 4. Create a free Vercel account and connect it to GitHub. You can import the
    frontend now, but wait to configure its production variables until the APIs
    have URLs.
@@ -35,10 +49,10 @@ From the root of the cloned `signaling-service` repository, run:
 bash deploy/cloud-run/deploy.sh
 ```
 
-The script prompts for the Neon connection details (the password is hidden),
-creates random JWT and API-key secrets in Google Secret Manager, builds the
-four Java images, and deploys them to Cloud Run in `us-central1`. Do not paste
-secrets into chat or save them in Git. Keep the script's final service URLs.
+The script creates random JWT and API-key secrets in Google Secret Manager,
+gets the connection URL from the linked Neon project, builds the four Java
+images, and deploys them to Cloud Run in `us-central1`. Do not paste secrets
+into chat or save them in Git. Keep the script's final service URLs.
 
 If prompted to enable Google APIs, allow it. The deploying Google account needs
 permission to build images, create Cloud Run services and secrets, and use the

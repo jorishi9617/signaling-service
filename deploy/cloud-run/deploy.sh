@@ -11,14 +11,10 @@ REGION=us-central1
 REPOSITORY=video-platform
 WORKDIR="${HOME}/video-platform-deploy"
 
-read -r -p "Neon database host (no protocol): " DB_HOST
-read -r -p "Neon database name: " DB_NAME
-read -r -p "Neon database username: " DB_USER
-read -r -s -p "Neon database password: " DB_PASSWORD
-printf '\n'
-
-if [[ -z "$DB_HOST" || -z "$DB_NAME" || -z "$DB_USER" || -z "$DB_PASSWORD" ]]; then
-  echo "All Neon connection details are required." >&2
+NEON_DATABASE_URL="$(neon connection-string production --database-name neondb)"
+if [[ "$NEON_DATABASE_URL" != postgresql://* && "$NEON_DATABASE_URL" != postgres://* ]]; then
+  echo "Could not retrieve the linked Neon production connection string." >&2
+  echo "Check that the Neon CLI is authenticated and this repo is linked to the right project." >&2
   exit 1
 fi
 
@@ -44,11 +40,25 @@ openssl rand -base64 48 -A | gcloud secrets create video-jwt-secret \
   --data-file=- --project="$PROJECT_ID"
 openssl rand -hex 32 | tr -d '\n' | gcloud secrets create video-token-api-key \
   --data-file=- --project="$PROJECT_ID"
-printf '%s' "$DB_PASSWORD" | gcloud secrets create video-db-password \
-  --data-file=- --project="$PROJECT_ID"
-unset DB_PASSWORD
+printf '%s' "$NEON_DATABASE_URL" | python3 -c '
+import sys
+import urllib.parse
 
-for secret in video-jwt-secret video-token-api-key video-db-password; do
+url = urllib.parse.urlsplit(sys.stdin.read())
+if url.scheme not in ("postgres", "postgresql") or not url.hostname or not url.path:
+    raise SystemExit("Neon returned an invalid PostgreSQL connection URL")
+if "-pooler." in url.hostname:
+    raise SystemExit("Use a direct Neon connection for startup Flyway migrations")
+query = urllib.parse.parse_qsl(url.query, keep_blank_values=True)
+if not any(key == "sslmode" for key, _ in query):
+    query.append(("sslmode", "require"))
+jdbc_url = urllib.parse.urlunsplit(("jdbc:postgresql", url.netloc, url.path, urllib.parse.urlencode(query), ""))
+sys.stdout.write(jdbc_url)
+' | gcloud secrets create video-db-url \
+  --data-file=- --project="$PROJECT_ID"
+unset NEON_DATABASE_URL
+
+for secret in video-jwt-secret video-token-api-key video-db-url; do
   gcloud secrets add-iam-policy-binding "$secret" \
     --member="serviceAccount:${RUNTIME_SA}" \
     --role=roles/secretmanager.secretAccessor \
@@ -69,7 +79,6 @@ for app in auth-service call-service common-library signaling-service; do
 done
 
 JAVA_OPTIONS="-XX:MaxRAMPercentage=50.0 -XX:+UseSerialGC"
-DB_ENV="^~^DATABASE_URL=jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}?sslmode=require~DATABASE_HOST=${DB_HOST}~DATABASE_PORT=5432~DATABASE_NAME=${DB_NAME}~DATABASE_USER=${DB_USER}~FRONTEND_ORIGINS=*~JAVA_TOOL_OPTIONS=${JAVA_OPTIONS}"
 COMMON_ENV="^~^FRONTEND_ORIGINS=*~JAVA_TOOL_OPTIONS=${JAVA_OPTIONS}"
 
 gcloud run deploy video-platform-token \
@@ -86,8 +95,8 @@ gcloud run deploy video-platform-auth \
   --region="$REGION" --port=8080 --memory=512Mi --cpu=1 \
   --min=0 --max=1 --timeout=3600 --allow-unauthenticated \
   --service-account="$RUNTIME_SA" \
-  --set-secrets="DATABASE_PASSWORD=video-db-password:latest,JWT_SECRET=video-jwt-secret:latest" \
-  --set-env-vars="${DB_ENV}" \
+  --set-secrets="DATABASE_URL=video-db-url:latest,JWT_SECRET=video-jwt-secret:latest" \
+  --set-env-vars="${COMMON_ENV}" \
   --project="$PROJECT_ID"
 
 gcloud run deploy video-platform-call \
@@ -95,8 +104,8 @@ gcloud run deploy video-platform-call \
   --region="$REGION" --port=8080 --memory=512Mi --cpu=1 \
   --min=0 --max=1 --timeout=3600 --allow-unauthenticated \
   --service-account="$RUNTIME_SA" \
-  --set-secrets="DATABASE_PASSWORD=video-db-password:latest,SECURITY_JWT_SECRET=video-jwt-secret:latest" \
-  --set-env-vars="^~^DATABASE_URL=jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}?sslmode=require~DATABASE_USER=${DB_USER}~FRONTEND_ORIGINS=*~JAVA_TOOL_OPTIONS=${JAVA_OPTIONS}" \
+  --set-secrets="DATABASE_URL=video-db-url:latest,SECURITY_JWT_SECRET=video-jwt-secret:latest" \
+  --set-env-vars="${COMMON_ENV}" \
   --project="$PROJECT_ID"
 
 gcloud run deploy video-platform-signaling \
