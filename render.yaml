@@ -9,7 +9,6 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    autoDeploy: true
     autoDeployTrigger: checksPass
     healthCheckPath: /actuator/health
     envVars:
