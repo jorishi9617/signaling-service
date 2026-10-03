@@ -1,0 +1,76 @@
+version: "1"
+
+envVarGroups:
+  - name: video-platform-secrets
+    envVars:
+      - key: JWT_SECRET
+        sync: false
+      - key: API_KEY
+        sync: false
+
+services:
+  - type: web
+    name: video-platform-auth
+    runtime: docker
+    repo: https://github.com/jorishi9617/auth-service
+    branch: master
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    autoDeployTrigger: checksPass
+    healthCheckPath: /actuator/health
+    envVars:
+      - fromGroup: video-platform-secrets
+      - key: FRONTEND_ORIGINS
+        value: https://frontend-web.vercel.app
+      - key: DATABASE_URL
+        sync: false
+
+  - type: web
+    name: video-platform-call
+    runtime: docker
+    repo: https://github.com/jorishi9617/call-service
+    branch: master
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    autoDeployTrigger: checksPass
+    healthCheckPath: /actuator/health
+    envVars:
+      - fromGroup: video-platform-secrets
+      - key: FRONTEND_ORIGINS
+        value: https://frontend-web.vercel.app
+      - key: DATABASE_URL
+        sync: false
+
+  - type: web
+    name: video-platform-signaling
+    runtime: docker
+    repo: https://github.com/jorishi9617/signaling-service
+    branch: master
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    autoDeployTrigger: checksPass
+    healthCheckPath: /actuator/health
+    envVars:
+      - fromGroup: video-platform-secrets
+      - key: FRONTEND_ORIGINS
+        value: https://frontend-web.vercel.app
+
+  - type: web
+    name: video-platform-token
+    runtime: docker
+    repo: https://github.com/jorishi9617/common-library
+    branch: master
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    autoDeployTrigger: checksPass
+    healthCheckPath: /actuator/health
+    envVars:
+      - fromGroup: video-platform-secrets

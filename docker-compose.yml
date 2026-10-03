@@ -1,0 +1,110 @@
+name: video-platform
+
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: video_platform
+      POSTGRES_USER: video
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-video-local}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 256m
+
+  java-app-1:
+    build:
+      context: ../auth-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      PORT: "8081"
+      DATABASE_URL: jdbc:postgresql://database:5432/video_platform
+      SPRING_DATASOURCE_USERNAME: video
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-video-local}
+      JWT_SECRET: ${JWT_SECRET:-bG9jYWwtZGV2ZWxvcG1lbnQtc2VjcmV0LWtleS1mb3ItbG9jYWwtb25seQ==}
+      FRONTEND_ORIGINS: http://localhost:3000
+    ports:
+      - "8081:8081"
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  java-app-2:
+    build:
+      context: ../call-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      PORT: "8082"
+      DATABASE_URL: jdbc:postgresql://database:5432/video_platform
+      SPRING_DATASOURCE_USERNAME: video
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-video-local}
+      SECURITY_JWT_SECRET: ${JWT_SECRET:-bG9jYWwtZGV2ZWxvcG1lbnQtc2VjcmV0LWtleS1mb3ItbG9jYWwtb25seQ==}
+      FRONTEND_ORIGINS: http://localhost:3000
+    ports:
+      - "8082:8082"
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  java-app-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8083"
+      JWT_SECRET: ${JWT_SECRET:-bG9jYWwtZGV2ZWxvcG1lbnQtc2VjcmV0LWtleS1mb3ItbG9jYWwtb25seQ==}
+      FRONTEND_ORIGINS: http://localhost:3000
+    ports:
+      - "8083:8083"
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  java-app-4:
+    build:
+      context: ../common-library
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8084"
+      SECURITY_API_KEY: ${API_KEY:-local-development-api-key-not-for-production}
+      SECURITY_JWT_SECRET: ${JWT_SECRET:-bG9jYWwtZGV2ZWxvcG1lbnQtc2VjcmV0LWtleS1mb3ItbG9jYWwtb25seQ==}
+    ports:
+      - "8084:8084"
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  frontend-app:
+    build:
+      context: ../frontend-web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SIGNALING_URL: ws://localhost:8083/ws
+        AUTH_API_INTERNAL_URL: http://java-app-1:8081
+        CALL_API_INTERNAL_URL: http://java-app-2:8082
+    restart: unless-stopped
+    depends_on:
+      - java-app-1
+      - java-app-2
+      - java-app-3
+      - java-app-4
+    ports:
+      - "3000:3000"
+    mem_limit: 384m
+    memswap_limit: 384m
+
+volumes:
+  postgres_data:

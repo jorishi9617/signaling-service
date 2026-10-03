@@ -1,100 +1,94 @@
-# Free-tier cloud deployment
+# Deploy the video platform
 
-This setup runs the four Java applications on Google Cloud Run, PostgreSQL on
-Neon, and the Next.js frontend on Vercel. Each provider has a free tier. Google
-Cloud requires a billing account, and free-tier quotas are shared and can
-change; add a budget alert before deploying. Usage beyond free quotas can cost
-money. Cloud Run services scale to zero when idle, so the first request after
-sleep can be slow. The Neon free database is small and is not a substitute for
-backups.
+This repository supports local Docker Compose, Render for the four Java
+services, Neon for PostgreSQL, and Vercel for the frontend. All providers
+currently have free offerings, but nobody can guarantee exactly $0 forever:
+free plans and quotas can change, services can sleep or be limited, and usage
+outside free allowances can be charged. Neon and Render free tiers also have
+resource and availability limits. Review each provider's current pricing and
+add billing alerts before enabling paid usage.
 
-The free Cloud Run allowance currently includes monthly request-based compute
-and up to 2 million requests, but its CPU and memory time is shared by all
-services on the billing account. Four Java services can use that allowance
-quickly if they receive steady traffic. WebSocket connections are limited to
-the Cloud Run request timeout and clients need to reconnect after an hour.
+## Run everything locally
 
-## 1. Create free accounts and a database
-
-1. Create a Google Cloud project and attach a billing account. Create a budget
-   alert in **Billing** before running the deployment script.
-2. Install the Google Cloud CLI on your computer, then run `gcloud auth login`
-   and `gcloud config set project YOUR_PROJECT_ID`.
-3. The Neon project is already linked in this checkout as
-   `noisy-smoke-33215628`, branch `production`, database `neondb`. If you are
-   setting up from a fresh checkout, install and authenticate the Neon CLI:
-
-   ```sh
-   npm install -g neon
-   neon auth
-   neon link --project-id noisy-smoke-33215628 \
-     --branch production --no-env-pull -y
-   ```
-
-   The deploy script gets the direct production connection URL from the Neon
-   CLI, converts it to JDBC, and stores it in Google Secret Manager. It does
-   not print or commit the database password. The direct connection is needed
-   because Flyway applies the app's checked-in migrations during startup. The
-   selected database currently has no `auth` or `calls` schema; the auth and
-   call services create these from their versioned Flyway migrations at startup.
-4. Create a free Vercel account and connect it to GitHub. You can import the
-   frontend now, but wait to configure its production variables until the APIs
-   have URLs.
-
-## 2. Deploy the Java services
-
-From the root of the cloned `signaling-service` repository, run:
+Install Docker Desktop, then from this repository's directory run:
 
 ```sh
-bash deploy/cloud-run/deploy.sh
+docker compose up --build
 ```
 
-The script creates random JWT and API-key secrets in Google Secret Manager,
-gets the connection URL from the linked Neon project, builds the four Java
-images, and deploys them to Cloud Run in `us-central1`. Do not paste secrets
-into chat or save them in Git. Keep the script's final service URLs.
+The auth, call, token, and frontend repositories must be checked out as sibling
+directories next to `signaling-service`, matching this workspace layout.
 
-If prompted to enable Google APIs, allow it. The deploying Google account needs
-permission to build images, create Cloud Run services and secrets, and use the
-project's billing account.
+Open <http://localhost:3000>. Local PostgreSQL is at `localhost:5432`
+(`video` / `video-local` by default); the backend apps are exposed on ports
+8081-8084. The database and each Java service are capped at 256 MiB, and the
+frontend is capped at 384 MiB, to make memory failures visible during local
+testing.
 
-## 3. Deploy the frontend
+These defaults are for local development only. The checked-in JWT and API-key
+fallbacks are not production secrets. To stop the stack, run
+`docker compose down`; add `-v` only if you also want to delete the local
+database.
 
-In the Vercel project for `jorishi9617/frontend-web`, open **Settings →
-Environment Variables** and add these three variables for **Production**. Use
-the URLs printed by the deployment script:
+## Deploy the database on Neon
 
-| Variable | Value |
-| --- | --- |
-| `AUTH_API_INTERNAL_URL` | Auth service URL, starting with `https://` |
-| `CALL_API_INTERNAL_URL` | Call service URL, starting with `https://` |
-| `NEXT_PUBLIC_SIGNALING_URL` | Signaling service URL, changed to `wss://` and suffixed with `/ws` |
+The Neon project is already linked in this checkout as project
+`noisy-smoke-33215628`, branch `production`, database `neondb`. The auth and
+call services apply their Flyway migrations at startup, creating the `auth`
+and `calls` schemas as needed.
 
-For example, if the signaling URL is `https://service-abc-uc.a.run.app`, set
-`NEXT_PUBLIC_SIGNALING_URL` to `wss://service-abc-uc.a.run.app/ws`. If Vercel already made an initial deployment, redeploy after saving the
-variables. Open the Vercel deployment URL and test register, login, calls, and
-WebSocket signaling.
+In the Neon console, select the Java/JDBC connection option and copy the
+direct (non-pooler) JDBC URL. Store it as the Render environment variable
+`DATABASE_URL` for both `video-platform-auth` and `video-platform-call`.
+Spring expects the URL to start with `jdbc:postgresql://`; if Neon gives you a
+URL starting with `postgresql://`, add the `jdbc:` prefix. The direct URL is
+needed because Flyway migrations run when each service starts. Keep the
+credentials private; do not commit the URL.
 
-## 4. Restrict browser origins
+## Deploy the Java services on Render
 
-The first deploy allows browser origins so it works before the Vercel domain
-is known. Once Vercel assigns the frontend URL, replace `*` with that exact
-`https://...vercel.app` origin on the auth, call, and signaling Cloud Run
-services. In each service's **Variables & Secrets** settings, edit
-`FRONTEND_ORIGINS` and redeploy.
+1. Push the repositories to GitHub and sign in to Render with GitHub.
+2. Choose **New → Blueprint**, select the
+   `jorishi9617/signaling-service` repository, and apply its `render.yaml`.
+   The blueprint creates the auth, call, signaling, and token Java services
+   from the other public repositories.
+3. In the Render environment group `video-platform-secrets`, set `JWT_SECRET`
+   to a random Base64 secret (generate with `openssl rand -base64 48`) and
+   `API_KEY` to a separate random value (generate with `openssl rand -hex 32`).
+   Keep both private. The same JWT secret is used by all token issuers and
+   validators.
+4. Set `DATABASE_URL` on the auth and call services to the Neon direct
+   connection string. The blueprint prompts for this secret.
+5. Wait for the GitHub Actions CI checks and Render builds to complete. The
+   backend images constrain the Java heap to 128 MiB and the blueprint selects
+   Render's free plan.
 
-## Updating services
+Service endpoints are named in the blueprint: `video-platform-auth`,
+`video-platform-call`, `video-platform-signaling`, and `video-platform-token`.
+If Render assigns different public URLs, use the actual URLs from the service
+dashboard in Vercel. Render's free web services may sleep while idle, so expect
+slow first requests.
 
-Push code to the corresponding public GitHub repository, then rebuild the
-changed Java image from this repository's root:
+## Deploy the frontend on Vercel
 
-```sh
-gcloud builds submit ../auth-service \
-  --tag us-central1-docker.pkg.dev/PROJECT_ID/video-platform/auth-service:latest
-gcloud run deploy video-platform-auth \
-  --image us-central1-docker.pkg.dev/PROJECT_ID/video-platform/auth-service:latest \
-  --region us-central1
-```
+1. Import `jorishi9617/frontend-web` into Vercel and deploy its `master`
+   branch.
+2. The frontend's `vercel.json` proxies `/api/auth/*` and `/api/calls/*` to
+   their Render services. If a Render URL differs
+   from the configured hostname, update the matching rewrite and redeploy.
+3. Set `NEXT_PUBLIC_SIGNALING_URL` in Vercel to the signaling service URL with
+   `https://` changed to `wss://` and `/ws` appended.
+4. Set `FRONTEND_ORIGINS` on the Render auth, call, and signaling services to
+   the exact Vercel production origin, for example
+   `https://frontend-web.vercel.app`, then redeploy those services.
 
-Replace `PROJECT_ID` with your Google Cloud project ID and substitute the
-service and image name for call, token, or signaling.
+The HTTP API rewrites are same-origin from the browser, so CORS is not needed
+for those proxied requests. The direct WebSocket connection is allowed by the
+signaling service's `FRONTEND_ORIGINS` setting.
+
+## CI/CD
+
+Each GitHub repository has a workflow under `.github/workflows/ci.yml`. It runs
+Maven verification for the Java services and a production build for the
+frontend on pushes and pull requests to `master`. Render is configured to
+deploy after checks pass.
