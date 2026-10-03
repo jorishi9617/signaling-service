@@ -1,5 +1,7 @@
 FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /workspace
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 --branch master https://github.com/jorishi9617/common-library.git common-library
 RUN mvn --batch-mode -f common-library/pom.xml -DskipTests install
 COPY pom.xml signaling-service/pom.xml

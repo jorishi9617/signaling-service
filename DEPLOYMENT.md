@@ -1,46 +1,86 @@
-# Free cloud deployment
+# Free-tier cloud deployment
 
-`render.yaml` deploys all four Java services, the Next.js frontend, and
-PostgreSQL on Render's free plan. You do not need to buy a server or domain;
-Render provides HTTPS URLs and supports the signaling WebSocket.
+This setup runs the four Java applications on Google Cloud Run, PostgreSQL on
+Neon, and the Next.js frontend on Vercel. Each provider has a free tier. Google
+Cloud requires a billing account, and free-tier quotas are shared and can
+change; add a budget alert before deploying. Usage beyond free quotas can cost
+money. Cloud Run services scale to zero when idle, so the first request after
+sleep can be slow. The Neon free database is small and is not a substitute for
+backups.
 
-## Important free-plan limits
+The free Cloud Run allowance currently includes monthly request-based compute
+and up to 2 million requests, but its CPU and memory time is shared by all
+services on the billing account. Four Java services can use that allowance
+quickly if they receive steady traffic. WebSocket connections are limited to
+the Cloud Run request timeout and clients need to reconnect after an hour.
 
-- Free web services sleep when idle and can take about a minute to wake up.
-  The monthly free instance-hour allowance is shared across the services in
-  your Render workspace. Five services running continuously exceed it.
-- Render's free PostgreSQL database expires after 30 days and its data is
-  deleted. This is suitable only for a temporary demo. For data you need to
-  keep, stop before deploying and choose a persistent free PostgreSQL provider
-  instead; its account and connection details must be configured separately.
-- Free service capacity, startup time, and availability are not guaranteed.
+## 1. Create free accounts and a database
 
-## Deploy
+1. Create a Google Cloud project and attach a billing account. Create a budget
+   alert in **Billing** before running the deployment script.
+2. Install the Google Cloud CLI on your computer, then run `gcloud auth login`
+   and `gcloud config set project YOUR_PROJECT_ID`.
+3. Create a free Neon PostgreSQL project in a US region. In **Connect**, copy
+   the host, database name, username, and password. Keep the password private.
+   Neon requires SSL; the deployment script configures it in the JDBC URL.
+4. Create a free Vercel account and connect it to GitHub. You can import the
+   frontend now, but wait to configure its production variables until the APIs
+   have URLs.
 
-1. Sign in to Render using GitHub and authorize access to the public app
-   repositories.
-2. In Render, choose **New > Blueprint**, then select
-   `jorishi9617/signaling-service`. Render reads `render.yaml` there and creates
-   all five services plus the database, including services whose source lives
-   in the other public repositories.
-3. Choose **Apply**. Render generates the shared Base64 JWT secret and token
-   API key automatically; they are not stored in the repositories.
-4. Wait for the builds to complete. The first deploy can
-   take several minutes. Render assigns HTTPS URLs to the web services and
-   the frontend build is configured to use those service names.
-5. Open the `jorishi9617-video-platform-web` URL shown on its Render service
-   page to use the application.
+## 2. Deploy the Java services
 
-Clients that call the token service's `/api/tokens` endpoints must send its
-generated `API_KEY` in the `X-API-Key` request header. Retrieve the key from
-the Render dashboard; do not post it in chat or commit it.
+From the root of the cloned `signaling-service` repository, run:
 
-## After deployment
+```sh
+bash deploy/cloud-run/deploy.sh
+```
 
-Render automatically redeploys a service when its repository's `master` branch
-changes. To preserve your database after its 30-day expiry, export or migrate
-the data before that date. Stopping or deleting the Render database permanently
-deletes its data.
+The script prompts for the Neon connection details (the password is hidden),
+creates random JWT and API-key secrets in Google Secret Manager, builds the
+four Java images, and deploys them to Cloud Run in `us-central1`. Do not paste
+secrets into chat or save them in Git. Keep the script's final service URLs.
 
-The `compose.yaml` file remains available for deploying the same stack on a
-server you manage.
+If prompted to enable Google APIs, allow it. The deploying Google account needs
+permission to build images, create Cloud Run services and secrets, and use the
+project's billing account.
+
+## 3. Deploy the frontend
+
+In the Vercel project for `jorishi9617/frontend-web`, open **Settings →
+Environment Variables** and add these three variables for **Production**. Use
+the URLs printed by the deployment script:
+
+| Variable | Value |
+| --- | --- |
+| `AUTH_API_INTERNAL_URL` | Auth service URL, starting with `https://` |
+| `CALL_API_INTERNAL_URL` | Call service URL, starting with `https://` |
+| `NEXT_PUBLIC_SIGNALING_URL` | Signaling service URL, changed to `wss://` and suffixed with `/ws` |
+
+For example, if the signaling URL is `https://service-abc-uc.a.run.app`, set
+`NEXT_PUBLIC_SIGNALING_URL` to `wss://service-abc-uc.a.run.app/ws`. If Vercel already made an initial deployment, redeploy after saving the
+variables. Open the Vercel deployment URL and test register, login, calls, and
+WebSocket signaling.
+
+## 4. Restrict browser origins
+
+The first deploy allows browser origins so it works before the Vercel domain
+is known. Once Vercel assigns the frontend URL, replace `*` with that exact
+`https://...vercel.app` origin on the auth, call, and signaling Cloud Run
+services. In each service's **Variables & Secrets** settings, edit
+`FRONTEND_ORIGINS` and redeploy.
+
+## Updating services
+
+Push code to the corresponding public GitHub repository, then rebuild the
+changed Java image from this repository's root:
+
+```sh
+gcloud builds submit ../auth-service \
+  --tag us-central1-docker.pkg.dev/PROJECT_ID/video-platform/auth-service:latest
+gcloud run deploy video-platform-auth \
+  --image us-central1-docker.pkg.dev/PROJECT_ID/video-platform/auth-service:latest \
+  --region us-central1
+```
+
+Replace `PROJECT_ID` with your Google Cloud project ID and substitute the
+service and image name for call, token, or signaling.
