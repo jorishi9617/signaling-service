@@ -101,6 +101,9 @@ services:
       - java-app-2
       - java-app-3
       - java-app-4
+    environment:
+      TOKEN_API_URL: http://java-app-4:8084
+      TOKEN_API_KEY: ${API_KEY:-local-development-api-key-not-for-production}
     ports:
       - "3000:3000"
     mem_limit: 384m

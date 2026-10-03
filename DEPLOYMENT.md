@@ -74,10 +74,19 @@ slow first requests.
 1. Import `jorishi9617/frontend-web` into Vercel and deploy its `master`
    branch.
 2. The frontend's `vercel.json` proxies `/api/auth/*` and `/api/calls/*` to
-   their Render services. If a Render URL differs
-   from the configured hostname, update the matching rewrite and redeploy.
-3. Set `NEXT_PUBLIC_SIGNALING_URL` in Vercel to the signaling service URL with
-   `https://` changed to `wss://` and `/ws` appended.
+   their Render services. If a Render URL differs from the configured
+   hostname, update the matching rewrite and redeploy.
+3. Set these Vercel Production environment variables:
+
+   | Variable | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_SIGNALING_URL` | Signaling service URL using `wss://` and ending in `/ws` |
+   | `TOKEN_API_URL` | Token service URL using `https://` |
+   | `TOKEN_API_KEY` | The secret `API_KEY` from the Render `video-platform-secrets` group |
+
+   The Next.js server proxies `/api/tokens/*` and injects `TOKEN_API_KEY`;
+   the key is not sent to the browser. Redeploy the frontend after setting
+   these values.
 4. Set `FRONTEND_ORIGINS` on the Render auth, call, and signaling services to
    the exact Vercel production origin, for example
    `https://frontend-web.vercel.app`, then redeploy those services.
