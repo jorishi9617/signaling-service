@@ -7,7 +7,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
-import org.springframework.messaging.handler.annotation.Payload;
 
 import java.security.Principal;
 import java.util.HashMap;
